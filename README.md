@@ -24,6 +24,7 @@ El proyecto sigue los principios de la **Arquitectura Hexagonal (Ports & Adapter
 ## PoC - Inteligencia Artificial (PMV 1)
 
 Como parte del primer hito (PMV 1), se desarrolló una **Prueba de Concepto (PoC)** para validar la clasificación automática de daños viales.
+Colab: https://colab.research.google.com/drive/1SwyPQjAO2j6GXqq5tV4C05Dwg6jF_p9m?usp=sharing
 
 ### Detalles Técnicos:
 *   **Modelo:** Transfer Learning con **MobileNetV2** (ideal para dispositivos móviles).
