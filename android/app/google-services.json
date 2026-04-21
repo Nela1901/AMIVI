@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "723372688690",
+    "project_id": "amiviuc",
+    "storage_bucket": "amiviuc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:723372688690:android:14bf924d0d1b7754cb432b",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrzrkkL3zFHKv040bJ0Lh5lDruDxBsmp8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
