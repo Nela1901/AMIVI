@@ -32,3 +32,4 @@ flutter:
 
   assets:
     - lib/src/adapters/out/ai/models/modelo_vial_correcto.tflite
+    - lib/src/adapters/out/ai/models/modelo_vial_gradcam.tflite

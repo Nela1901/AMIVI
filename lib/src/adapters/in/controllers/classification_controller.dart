@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../application/ports/input/classify_image_port.dart';
 import '../../../application/usecases/save_inspection_usecase.dart';
 import '../../../domain/entities/road_incidence.dart';
+import '../../../domain/valueobjects/damage_level.dart';
+
 
 enum ClassificationState { idle, loading, success, error }
 enum SaveState { idle, saving, saved, error }
@@ -54,6 +56,23 @@ class ClassificationController extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// Permite editar manualmente el resultado (HU-13)
+  void updateDamageLevel(DamageLevel newLevel) {
+    if (_result != null) {
+      _result = RoadIncidence(
+        id: _result!.id,
+        imagePath: _result!.imagePath,
+        gradcamPath: _result!.gradcamPath,
+        damageLevel: newLevel,
+        confidence: 1.0, // Al ser manual, la confianza es total
+        probabilities: _result!.probabilities,
+        detectedAt: _result!.detectedAt,
+      );
+      _saveState = SaveState.idle; // Resetear estado de guardado si se edita
+      notifyListeners();
+    }
   }
 
   Future<void> saveInspection() async {

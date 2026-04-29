@@ -29,7 +29,8 @@ Colab: https://colab.research.google.com/drive/1SwyPQjAO2j6GXqq5tV4C05Dwg6jF_p9m
 ### Detalles Técnicos:
 *   **Modelo:** Transfer Learning con **MobileNetV2** (ideal para dispositivos móviles).
 *   **Dataset:** 400 imágenes clasificadas en 4 niveles: `Normal`, `Leve`, `Moderado` y `Severo`.
-*   **Resultados:** Se logró un **95% de Accuracy** en el conjunto de prueba (Test Set).
+*   **Dataset:** 400 imágenes clasificadas en 3 niveles: `Normal`, `Leve` y `Dañado`.
+*   **Resultados:** Se logró un **95% de Accuracy** en el conjunto de prueba (Test Set) para las 3 clases.
 
 ### Ubicación de la PoC en la Arquitectura:
 Siguiendo la investigación arquitectónica, el código de la PoC se encuentra en:
