@@ -64,15 +64,15 @@ class AiDetectorAdapter implements AiDetectorPort {
     );
   }
 
-  // ── Copia imagen a directorio temporal ───────────────────────────────
+  // ── Persistencia de imagen en directorio permanente ──────────────────
 
-  Future<String> _copyToTemp(String imagePath) async {
-    final tempDir = await getTemporaryDirectory();
+  Future<String> _persistImage(String imagePath) async {
+    final appDir = await getApplicationDocumentsDirectory();
     final fileName =
         '${DateTime.now().millisecondsSinceEpoch}_${path.basename(imagePath)}';
-    final tempPath = '${tempDir.path}/$fileName';
-    await File(imagePath).copy(tempPath);
-    return tempPath;
+    final permanentPath = path.join(appDir.path, fileName);
+    await File(imagePath).copy(permanentPath);
+    return permanentPath;
   }
 
   // ── Clasificación principal ──────────────────────────────────────────
@@ -81,7 +81,7 @@ class AiDetectorAdapter implements AiDetectorPort {
   Future<RoadIncidence> classifyImage(String imagePath) async {
     await _loadModel();
 
-    final safePath = await _copyToTemp(imagePath);
+    final safePath = await _persistImage(imagePath);
     final rawBytes = await File(safePath).readAsBytes();
     img.Image? image = img.decodeImage(rawBytes);
     if (image == null) throw Exception('No fue posible procesar la imagen (formato no soportado o archivo corrupto).');
@@ -237,9 +237,9 @@ class AiDetectorAdapter implements AiDetectorPort {
     final result = await _overlayHeatmap(image, heatmap);
 
     // Guardar imagen resultante
-    final tempDir = await getTemporaryDirectory();
+    final appDir = await getApplicationDocumentsDirectory();
     final outPath =
-        '${tempDir.path}/gradcam_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        path.join(appDir.path, 'gradcam_${DateTime.now().millisecondsSinceEpoch}.jpg');
     await File(outPath).writeAsBytes(img.encodeJpg(result, quality: 90));
 
     return outPath;

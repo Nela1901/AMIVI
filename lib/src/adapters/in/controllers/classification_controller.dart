@@ -85,7 +85,7 @@ class ClassificationController extends ChangeNotifier {
     try {
       _savedDocumentId = await _saveInspectionUsecase.execute(
         _result!,
-        _selectedImagePath!,
+        _result!.imagePath,
       );
       _saveState = SaveState.saved;
     } catch (e) {
