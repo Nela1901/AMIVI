@@ -51,3 +51,11 @@ Como parte del primer hito (PMV 1), se desarrolló una **Prueba de Concepto (PoC
 *   **Flutter & Dart:** Para el desarrollo de la aplicación móvil.
 *   **Python & TensorFlow/Keras:** Para el entrenamiento del modelo de visión computacional.
 *   **Google Colab:** Entorno de experimentación para la PoC.
+
+## Lecciones Aprendidas y Conclusiones
+
+1.  **Arquitectura Escalable:** La separación en capas (Hexagonal) permite una independencia total de la base de datos y frameworks, facilitando el mantenimiento a largo plazo.
+2.  **IA Interpretable (XAI):** El uso de Grad-CAM elimina el efecto de "caja negra", permitiendo a los inspectores visualizar la zona de falla detectada por el modelo.
+3.  **Optimización Móvil:** La implementación de modelos ligeros (MobileNetV2 + TFLite) garantiza un rendimiento fluido sin comprometer los recursos del dispositivo.
+4.  **Validación de Datos (Human-in-the-loop):** El flujo de confirmación manual previene que errores de predicción afecten la integridad de los reportes viales.
+5.  **Trazabilidad:** La integración nativa con GPS y servicios en la nube asegura que cada incidencia sea auditable y localizable en tiempo real.
