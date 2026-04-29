@@ -36,10 +36,6 @@ Colab: https://colab.research.google.com/drive/1SwyPQjAO2j6GXqq5tV4C05Dwg6jF_p9m
 Siguiendo la investigación arquitectónica, el código de la PoC se encuentra en:
 `lib/src/adapters/out/ai/poc/`
 
-Aquí se encuentran los archivos:
-1.  `PoC_Clasificación_de_Daños_Viales_(PMV_1).ipynb`: Notebook interactivo con visualizaciones y resultados.
-2.  `poc_clasificación_de_daños_viales_(pmv_1).py`: Script de Python con la lógica de construcción y entrenamiento del modelo.
-
 > **Nota:** La integración de la PoC dentro de los adaptadores de salida (`adapters/out`) justifica que la IA es una herramienta técnica que satisface los requerimientos definidos en el dominio del proyecto.
 
 ---
