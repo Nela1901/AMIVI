@@ -7,6 +7,15 @@ El Enlace al Colab: Aquí es donde entra la documentación. En lugar de "pegar e
 
 AMIVI es un proyecto académico diseñado para la detección, registro y visualización de daños viales (baches) utilizando Inteligencia Artificial, geolocalización y Arquitectura Hexagonal en Flutter.
 
+## Equipo del Proyecto (Roles)
+*   **Arquitecto de Software:** Espinoza Tiza Yago Imanol
+*   **Ingeniero de IA:** Uscuvilca Ramos Abraham Luis
+*   **Desarrollador Backend:** Guerra Lozano Keen
+*   **Desarrolladora Frontend e Implementación Core:** Inciso Aguilar Elizabeth Antonela
+*   **Ingeniero de Integración:** Janampa Navarro Clinton
+
+**Curso:** Taller de Proyectos 1 | **NRC:** 28601
+
 ## Arquitectura del Proyecto
 
 El proyecto sigue los principios de la **Arquitectura Hexagonal (Ports & Adapters)** para garantizar escalabilidad, mantenibilidad y desacoplamiento de la lógica de negocio frente a las tecnologías externas.
@@ -21,24 +30,21 @@ El proyecto sigue los principios de la **Arquitectura Hexagonal (Ports & Adapter
 
 ---
 
-## PoC - Inteligencia Artificial (PMV 1)
+## Entorno de Calidad y Machine Learning
 
 Como parte del primer hito (PMV 1), se desarrolló una **Prueba de Concepto (PoC)** para validar la clasificación automática de daños viales.
-Colab: https://colab.research.google.com/drive/1SwyPQjAO2j6GXqq5tV4C05Dwg6jF_p9m?usp=sharing
+
+### Estándares de Calidad Aplicados:
+1.  **Desacoplamiento:** Uso de Puertos para la IA, permitiendo cambiar el modelo TFLite sin afectar la UI.
+2.  **Interpretabilidad:** Implementación de Grad-CAM para asegurar que la IA sea auditable.
+3.  **Trazabilidad:** Registro georreferenciado automático vinculado a evidencias en la nube.
 
 ### Detalles Técnicos:
 *   **Modelo:** Transfer Learning con **MobileNetV2** (ideal para dispositivos móviles).
-*   **Dataset:** 400 imágenes clasificadas en 4 niveles: `Normal`, `Leve`, `Moderado` y `Severo`.
-*   **Dataset:** 400 imágenes clasificadas en 3 niveles: `Normal`, `Leve` y `Dañado`.
+*   **Dataset:** 500 imágenes clasificadas en 3 niveles: `Normal`, `Leve` y `Dañado`.
 *   **Resultados:** Se logró un **95% de Accuracy** en el conjunto de prueba (Test Set) para las 3 clases.
 
-### Ubicación de la PoC en la Arquitectura:
-Siguiendo la investigación arquitectónica, el código de la PoC se encuentra en:
-`lib/src/adapters/out/ai/poc/`
-
-> **Nota:** La integración de la PoC dentro de los adaptadores de salida (`adapters/out`) justifica que la IA es una herramienta técnica que satisface los requerimientos definidos en el dominio del proyecto.
-
----
+**Modelos:** Los archivos productivos `.tflite` se encuentran en `lib/src/adapters/out/ai/models/`.
 
 ## Tecnologías Utilizadas
 
