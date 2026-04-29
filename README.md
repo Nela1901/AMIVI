@@ -1,13 +1,8 @@
-El archivo .py: Ponlo directamente en lib/src/adapters/out/ai/poc/classification_poc.py. Esto es el código "crudo".
-El archivo .ipynb (Opcional): También puedes ponerlo ahí mismo. GitHub permite verlo muy bonito desde la web.
-El Enlace al Colab: Aquí es donde entra la documentación. En lugar de "pegar el link" en el código, lo correcto es crear un archivo README.md dentro de esa misma carpeta (lib/src/adapters/out/ai/poc/README.md).
-
-
 # AMIVI - Aplicación Móvil de Inspección Vial Inteligente 
 
 AMIVI es un proyecto académico diseñado para la detección, registro y visualización de daños viales (baches) utilizando Inteligencia Artificial, geolocalización y Arquitectura Hexagonal en Flutter.
 
-## Equipo del Proyecto (Roles)
+## Equipo del Proyecto
 *   **Arquitecto de Software:** Espinoza Tiza Yago Imanol
 *   **Ingeniero de IA:** Uscuvilca Ramos Abraham Luis
 *   **Desarrollador Backend:** Guerra Lozano Keen
@@ -30,9 +25,9 @@ El proyecto sigue los principios de la **Arquitectura Hexagonal (Ports & Adapter
 
 ---
 
-## Entorno de Calidad y Machine Learning
+## Ingeniería del Producto y AI
 
-Como parte del primer hito (PMV 1), se desarrolló una **Prueba de Concepto (PoC)** para validar la clasificación automática de daños viales.
+Como parte del primer hito (PMV 1), se implementó un motor de clasificación automática de daños viales integrado mediante puertos y adaptadores.
 
 ### Estándares de Calidad Aplicados:
 1.  **Desacoplamiento:** Uso de Puertos para la IA, permitiendo cambiar el modelo TFLite sin afectar la UI.
@@ -44,18 +39,17 @@ Como parte del primer hito (PMV 1), se desarrolló una **Prueba de Concepto (PoC
 *   **Dataset:** 500 imágenes clasificadas en 3 niveles: `Normal`, `Leve` y `Dañado`.
 *   **Resultados:** Se logró un **95% de Accuracy** en el conjunto de prueba (Test Set) para las 3 clases.
 
-**Modelos:** Los archivos productivos `.tflite` se encuentran en `lib/src/adapters/out/ai/models/`.
+**Modelos:** Los artefactos `.tflite` se encuentran en `lib/src/adapters/out/ai/models/`.
 
 ## Tecnologías Utilizadas
 
 *   **Flutter & Dart:** Para el desarrollo de la aplicación móvil.
 *   **Python & TensorFlow/Keras:** Para el entrenamiento del modelo de visión computacional.
-*   **Google Colab:** Entorno de experimentación para la PoC.
 
 ## Lecciones Aprendidas y Conclusiones
 
-1.  **Arquitectura Escalable:** La separación en capas (Hexagonal) permite una independencia total de la base de datos y frameworks, facilitando el mantenimiento a largo plazo.
-2.  **IA Interpretable (XAI):** El uso de Grad-CAM elimina el efecto de "caja negra", permitiendo a los inspectores visualizar la zona de falla detectada por el modelo.
-3.  **Optimización Móvil:** La implementación de modelos ligeros (MobileNetV2 + TFLite) garantiza un rendimiento fluido sin comprometer los recursos del dispositivo.
-4.  **Validación de Datos (Human-in-the-loop):** El flujo de confirmación manual previene que errores de predicción afecten la integridad de los reportes viales.
-5.  **Trazabilidad:** La integración nativa con GPS y servicios en la nube asegura que cada incidencia sea auditable y localizable en tiempo real.
+1. **Arquitectura Escalable:** La separación en capas (Hexagonal) permite una independencia total de la base de datos y frameworks, facilitando el mantenimiento a largo plazo.
+2. **IA Interpretable (XAI):** El uso de Grad-CAM elimina el efecto de "caja negra", permitiendo a los inspectores visualizar la zona de falla detectada por el modelo.
+3. **Optimización Móvil:** La implementación de modelos ligeros (MobileNetV2 + TFLite) garantiza un rendimiento fluido sin comprometer los recursos del dispositivo.
+4. **Validación de Datos (Human-in-the-loop):** El flujo de confirmación manual previene que errores de predicción afecten la integridad de los reportes viales.
+5. **Trazabilidad:** La integración nativa con GPS y servicios en la nube asegura que cada incidencia sea auditable y localizable en tiempo real.
