@@ -16,10 +16,13 @@ void main() async {
   await Firebase.initializeApp();
   runApp(AMIVIApp());
 }
-
+//LA CLASE AMIVIApp ES EL PUNTO DE ENTRADA DE LA APLICACIÓN, 
+//CONFIGURA LOS ADAPTERS Y USECASES, Y PROPORCIONA EL CONTROLADOR A LA UI.
 class AMIVIApp extends StatelessWidget {
   const AMIVIApp({super.key});
 
+//CONEXIÓN CON LA ARQUITECTURA HEXAGONAL: 
+//INYECTAN LAS DEPENDENCIAS DE LOS ADAPTERS Y USECASES EN EL CONTROLADOR, 
   @override
   Widget build(BuildContext context) {
     final aiAdapter = AiDetectorAdapter();
@@ -42,7 +45,11 @@ class AMIVIApp extends StatelessWidget {
     );
   }
 }
+//LA CLASE CLASSIFICATIONSCREEN ES LA INTERFAZ DE USUARIO PRINCIPAL,
+//MUESTRA LA IMAGEN SELECCIONADA, LOS RESULTADOS DE LA CLASIFICACIÓN, 
+//LOS BOTONES DE ACCIÓN, Y LOS MENSAJES DE ERROR O ÉXITO.
 
+//EL STATEFUL WIDGET ESCUCHA LOS CAMBIOS EN EL CONTROLADOR Y RECONSTRUYE LA UI EN CONSECUENCIA.
 class ClassificationScreen extends StatefulWidget {
   final ClassificationController controller;
 
@@ -51,22 +58,28 @@ class ClassificationScreen extends StatefulWidget {
   @override
   State<ClassificationScreen> createState() => _ClassificationScreenState();
 }
+//LA CLASE _ClassificationScreenState CONTIENE LA LÓGICA DE
+//INTERACCIÓN CON EL USUARIO, COMO SELECCIONAR IMAGEN, MOSTRAR RESULTADOS, 
+//MANEJAR ERRORES, Y MOSTRAR DIÁLOGOS DE CONFIRMACIÓN O EDICIÓN.
 
 class _ClassificationScreenState extends State<ClassificationScreen> {
   final ImagePicker _picker = ImagePicker();
-
+  // [HU-IA-01] Umbral de confianza para sugerir validación manual
   static const double _minConfidenceForManualValidation = 0.75; // 75%
- 
+//EL METODO PICKIMAGE SE ENCARGA DE ABRIR LA CÁMARA O LA GALERÍA, 
+//MANEJAR LOS PERMISOS, Y ACTUALIZAR EL CONTROLADOR CON LA RUTA DE LA IMAGEN SELECCIONADA.
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? file = await _picker.pickImage(source: source);
       
       if (file == null) return; // El usuario canceló la selección sin cerrar con error
-
+      // [PMV1 - HU-04 - Escenario 1]: Captura exitosa desde cámara.
+      // [PMV1 - HU-05 - Escenario 1]: Carga exitosa desde galería.
       widget.controller.setImagePath(file.path);
       
     } on PlatformException catch (e) {
-      // Esto cumple con el Escenario 2 de HU-04 y HU-05
+      // [PMV1 - HU-04 - Escenario 2] y [PMV1 - HU-05 - Escenario 2]: El usuario deniega permisos o hay un error de acceso.
+      //El sistema muestra mensaje indicando que no puede acceder.
       String message = 'No se pudo acceder a la ${source == ImageSource.camera ? 'cámara' : 'galería'}.';
       
       if (e.code == 'camera_access_denied' || e.code == 'photo_access_denied' || e.code == 'access_denied' || e.code == 'camera_permission_denied') {
@@ -74,6 +87,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
       }
       _showSnackBar(message, isError: true);
     } catch (e) {
+      // [PMV1 - HU-05 - Escenario 2]: Error al cargar un archivo no compatible o corrupto.
       _showSnackBar('Error inesperado: ${e.toString()}', isError: true);
     }
   }
@@ -91,6 +105,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        // [PMV1 - HU-13 - Escenario 1]: Interfaz para editar el resultado.
         title: const Text('Editar tipo de daño'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -113,6 +128,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        // [PMV1 - HU-13 - Escenario 1]: Confirmación antes de descartar.
         title: const Text('Confirmar descarte'),
         content: const Text('¿Estás seguro de que quieres descartar esta inspección y comenzar una nueva? Se perderán los datos actuales.'),
         actions: [
@@ -133,7 +149,12 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
     }
   }
 
+//SE DEFINE LA LÓGICA DE COLORES, ICONOS, Y ESTILOS PARA LOS DIFERENTES NIVELES DE DAÑO,
+//ASÍ COMO LOS ESTADOS DE CARGA Y ERROR, PARA MANTENER LA CONSISTENCIA VISUAL 
+//Y DE USABILIDAD EN LA INTERFAZ.
 
+
+  // [PMV1 - HU-12 - Escenario 1]: Lógica de colores para visualización clara e interpretable.
   Color _getColorForLevel(DamageLevel level) {
     switch (level) {
       case DamageLevel.normal:
@@ -145,6 +166,10 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
     }
   }
 
+// [HU-12] Lógica de colores de fondo para una visualización clara e interpretable del resultado.
+//COLORES DE FONDO MÁS SUAVES PARA LOS DIFERENTES NIVELES DE DAÑO,
+//PROPORCIONANDO UN CONTRASTE ADECUADO CON EL TEXTO Y LOS ICONOS, 
+//Y MEJORANDO LA LEGIBILIDAD DE LA INFORMACIÓN MOSTRADA.
   Color _getBgColorForLevel(DamageLevel level) {
     switch (level) {
       case DamageLevel.normal:
@@ -155,7 +180,8 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         return const Color(0xFFFCEBEB);
     }
   }
-
+//SE ASOCIAN ICONOS SIMBÓLICOS PARA CADA NIVEL DE DAÑO, 
+// [HU-12] Lógica de iconos para una visualización clara e interpretable del resultado.
   String _getIconForLevel(DamageLevel level) {
     switch (level) {
       case DamageLevel.normal:
@@ -166,7 +192,9 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         return '✕';
     }
   }
-
+//EL AnimatedBuilder ESCUCHA LOS CAMBIOS EN EL CONTROLADOR 
+//Y RECONSTRUYE LA UI EN CONSECUENCIA, 
+//MOSTRANDO LOS DATOS ACTUALIZADOS O LOS MENSAJES DE ERROR/ÉXITO SEGÚN CORRESPONDA.  
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -305,6 +333,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                 ElevatedButton(
                   onPressed: controller.selectedImagePath != null &&
                           controller.state != ClassificationState.loading
+                      // [PMV1 - HU-08 - Escenario 1]: El usuario solicita el análisis automático.
                       ? () => widget.controller.classify()
                       : null,
                   style: ElevatedButton.styleFrom(
@@ -313,7 +342,8 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
-                  ),
+                  ), // [HU-08] Feedback visual de carga.
+                  // Feedback visual durante el tiempo razonable de procesamiento (HU-08 S1).
                   child: controller.state == ClassificationState.loading
                       ? const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -337,10 +367,12 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                 // Resultado
                 if (controller.state == ClassificationState.success &&
                     controller.result != null)
+                  // [PMV1 - HU-12 - Escenario 1]: Presentación del resultado interpretable.
                   _buildResult(controller.result!, controller),
 
                 // Error clasificación
                 if (controller.state == ClassificationState.error)
+                  // [PMV1 - HU-12 - Escenario 2]: Resultado incompleto o error.
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -348,7 +380,8 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFFA32D2D), width: 1),
                     ),
-                    child: Column(
+                    child: Column( // [PMV1 - HU-13 - Escenario 2]: Resultado no editable por error.
+                      // [HU-08 Escenario de Error] Mensaje de error si la clasificación falla.
                       children: [
                         const Icon(Icons.error_outline, color: Color(0xFFA32D2D), size: 28),
                         const SizedBox(height: 8),
@@ -373,13 +406,15 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
       },
     );
   }
-
+//EL MÉTODO _BUILDRESULT CONSTRUYE LA SECCIÓN DE RESULTADOS DE LA INTERFAZ, 
+//MOSTRANDO EL NIVEL DE DAÑO DETECTADO,
   Widget _buildResult(
       RoadIncidence result, ClassificationController controller) {
     final color = _getColorForLevel(result.damageLevel);
     final bgColor = _getBgColorForLevel(result.damageLevel);
     final icon = _getIconForLevel(result.damageLevel);
 
+    // [PMV1 - HU-IA-01 - Escenario 1]: Clasificación automática exitosa con confianza.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -392,19 +427,21 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
           ),
           child: Column(
             children: [
+              // [PMV1 - HU-12 - Escenario 1]: Visualización del tipo de daño.
               Text(icon, style: TextStyle(fontSize: 36, color: color)),
               Text(result.damageLevel.label,
                   style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w600,
                       color: color)),
+              // [PMV1 - HU-12 - Escenario 1]: Visualización de la descripción clara.
               const SizedBox(height: 4),
               Text(result.damageLevel.description,
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 13, color: color)),
               const SizedBox(height: 12),
               Text(
-                'Confianza: ${(result.confidence * 100).toStringAsFixed(1)}%',
+                'Confianza: ${(result.confidence * 100).toStringAsFixed(1)}%', 
                 style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -415,9 +452,9 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Advertencia de baja confianza (HU-IA-01 Escenario 2)
         if (result.confidence < _minConfidenceForManualValidation)
           Container(
+            // [PMV1 - HU-IA-01 - Escenario 2]: La baja confianza indica necesidad de validación manual.
             padding: const EdgeInsets.all(12),
             margin: const EdgeInsets.only(bottom: 12), // Añadir margen inferior para separar del siguiente elemento
             decoration: BoxDecoration(
@@ -443,6 +480,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
 
         // Probabilidades
         Container(
+          // [PMV1 - HU-12 - Escenario 1]: Atributos esperados (probabilidades).
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -496,11 +534,8 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         ),
         const SizedBox(height: 12),
 
-        // ── HU-10: Mapa de calor Grad-CAM ────────────────────────────
-        // Escenario 1: Grad-CAM generado correctamente → mostrar heatmap
-        // Escenario 2: Grad-CAM falló → mostrar mensaje informativo
         if (result.gradcamPath != null)
-          Container(
+          Container( // [PMV1 - HU-10 - Escenario 1]: Delimitación correcta resaltando la región.
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -534,7 +569,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // Leyenda colormap
+                // Leyenda COLORMAP
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -551,8 +586,8 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
             ),
           )
         else
-          // Escenario 2: no se pudo generar el mapa de calor
           Container(
+            // [PMV1 - HU-10 - Escenario 2]: No se pudo representar visualmente la zona (resultado incompleto).
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: const Color(0xFFFAEEDA),
@@ -581,6 +616,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         if (controller.selectedImagePath != null &&
             !controller.selectedImagePath!.contains('camera'))
           Container(
+            // Contexto adicional para HU-05 (Imágenes de galería).
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: const Color(0xFFFAEEDA),
@@ -603,11 +639,12 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
           ),
         const SizedBox(height: 12),
 
-        // Botón registrar
+        // Botón registrar inspección y editar (HU-13)
         if (controller.saveState != SaveState.saved) ...[
           ElevatedButton.icon(
             onPressed: controller.saveState == SaveState.saving
                 ? null
+                // [PMV1 - HU-13 - Escenario 1]: Acción de confirmar el resultado.
                 : () => controller.saveInspection(),
             icon: controller.saveState == SaveState.saving
                 ? const SizedBox(
@@ -633,10 +670,10 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          // Botón Editar (HU-13) - Ahora debajo de Registrar como opción de corrección
           OutlinedButton.icon(
             onPressed: controller.saveState == SaveState.saving
                 ? null
+                // [PMV1 - HU-13 - Escenario 1]: Acción de editar el resultado.
                 : () => _showEditDialog(context, controller),
             icon: const Icon(Icons.edit_note_outlined, size: 18),
             label: const Text('Corregir detección manualmente'),
@@ -654,6 +691,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         if (controller.saveState == SaveState.saved)
           Container(
             padding: const EdgeInsets.all(16),
+            // Finalización exitosa de HU-13 Escenario 1.
             decoration: BoxDecoration(
               color: const Color(0xFFEAF3DE),
               borderRadius: BorderRadius.circular(12),
@@ -672,6 +710,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
 
         // Error guardado
         if (controller.saveState == SaveState.error)
+          // Error durante el proceso de guardado (HU-13).
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -686,8 +725,8 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
 
         const SizedBox(height: 12),
 
-        // Botón nueva inspección (Descartar - HU-13)
         OutlinedButton(
+          // [PMV1 - HU-13 - Escenario 1]: Acción de descartar el resultado.
           onPressed: () => _showDiscardConfirmationDialog(context, controller),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 12),

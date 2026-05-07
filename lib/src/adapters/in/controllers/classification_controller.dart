@@ -4,10 +4,13 @@ import '../../../application/usecases/save_inspection_usecase.dart';
 import '../../../domain/entities/road_incidence.dart';
 import '../../../domain/valueobjects/damage_level.dart';
 
-
+//DEFINICION DE ENUMS PARA LOS ESTADOS DE CLASIFICACIÓN Y GUARDADO,
+//PERMITE A LA UI SABER CUANDO MOSTRAR CARGANDO, RESULTADOS, O MENSAJES DE ERROR.
 enum ClassificationState { idle, loading, success, error }
 enum SaveState { idle, saving, saved, error }
 
+//HABLA CON EL DOMINIO PARA CLASIFICAR LA IMAGEN Y GUARDAR LA INSPECCIÓN, 
+//MANEJA LOS ESTADOS DE CARGA Y ERROR, Y NOTIFICA A LA UI CUANDO HAY CAMBIOS
 class ClassificationController extends ChangeNotifier {
   final ClassifyImagePort _classifyImagePort;
   final SaveInspectionUsecase _saveInspectionUsecase;
@@ -46,11 +49,14 @@ class ClassificationController extends ChangeNotifier {
     _state = ClassificationState.loading;
     _errorMessage = null;
     notifyListeners();
+    // [PMV1 - HU-08 - Escenario 1]: Inicio del procesamiento automático de la imagen.
 
     try {
+      // [PMV1 - HU-09 - Escenario 1]: El modelo identifica la presencia de anomalías.
       _result = await _classifyImagePort.execute(_selectedImagePath!);
       _state = ClassificationState.success;
     } catch (e) {
+      // [PMV1 - HU-08 - Escenario 2]: La imagen no puede ser interpretada o procesada.
       _errorMessage = 'Error al clasificar la imagen: $e';
       _state = ClassificationState.error;
     }
@@ -58,15 +64,15 @@ class ClassificationController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Permite editar manualmente el resultado (HU-13)
   void updateDamageLevel(DamageLevel newLevel) {
     if (_result != null) {
+      // [PMV1 - HU-13 - Escenario 1]: El usuario edita el resultado (Validación manual).
       _result = RoadIncidence(
         id: _result!.id,
         imagePath: _result!.imagePath,
         gradcamPath: _result!.gradcamPath,
         damageLevel: newLevel,
-        confidence: 1.0, // Al ser manual, la confianza es total
+        confidence: 1.0, // Al ser validación manual, la confianza se asume total.
         probabilities: _result!.probabilities,
         detectedAt: _result!.detectedAt,
       );
@@ -78,6 +84,7 @@ class ClassificationController extends ChangeNotifier {
   Future<void> saveInspection() async {
     if (_result == null || _selectedImagePath == null) return;
 
+    // [PMV1 - HU-13 - Escenario 1]: El usuario confirma y procede al registro.
     _saveState = SaveState.saving;
     _errorMessage = null;
     notifyListeners();
@@ -99,6 +106,7 @@ class ClassificationController extends ChangeNotifier {
   void reset() {
     _state = ClassificationState.idle;
     _saveState = SaveState.idle;
+    // [PMV1 - HU-13 - Escenario 1]: El usuario descarta la detección actual.
     _result = null;
     _errorMessage = null;
     _selectedImagePath = null;
