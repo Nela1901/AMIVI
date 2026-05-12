@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:flutter/services.dart';
@@ -10,6 +11,8 @@ import 'src/application/usecases/classify_road_image_usecase.dart';
 import 'src/application/usecases/save_inspection_usecase.dart';
 import 'src/domain/entities/road_incidence.dart';
 import 'src/domain/valueobjects/damage_level.dart';
+import 'src/adapters/out/auth/firebase_auth_adapter.dart';
+import 'src/adapters/in/controllers/auth_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +34,9 @@ class AMIVIApp extends StatelessWidget {
     final saveUsecase = SaveInspectionUsecase(firestoreAdapter);
     final controller = ClassificationController(classifyUsecase, saveUsecase);
 
+    final authAdapter = FirebaseAuthAdapter();
+    final authController = AuthController(authAdapter);
+
     return MaterialApp(
       title: 'AMIVI',
       debugShowCheckedModeBanner: false,
@@ -41,7 +47,466 @@ class AMIVIApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: ClassificationScreen(controller: controller),
+      home: AuthWrapper(authController: authController, classificationController: controller),
+    );
+  }
+}
+
+class AuthWrapper extends StatelessWidget {
+  final AuthController authController;
+  final ClassificationController classificationController;
+
+  const AuthWrapper({super.key, required this.authController, required this.classificationController});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: authController,
+      builder: (context, _) {
+        if (authController.status == AuthStatus.authenticated) {
+          return ClassificationScreen(controller: classificationController, authController: authController);
+        }
+        return LoginScreen(authController: authController);
+      },
+    );
+  }
+}
+
+class LoginScreen extends StatefulWidget {
+  final AuthController authController;
+  const LoginScreen({super.key, required this.authController});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 80, height: 80,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF185FA5),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Icon(Icons.map_outlined, color: Colors.white, size: 40),
+              ),
+              const SizedBox(height: 24),
+              const Text('AMIVI', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF185FA5))),
+              const Text('Inspección Vial con IA', style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 48),
+              
+              if (widget.authController.errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(widget.authController.errorMessage!, 
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+
+              // Campos de Correo y Contraseña
+              TextField(
+                controller: _emailController,
+                decoration: InputDecoration(
+                  labelText: 'Correo electrónico',
+                  prefixIcon: const Icon(Icons.email_outlined),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'Contraseña',
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    widget.authController.resetError(); // Limpia errores previos
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => ForgotPasswordScreen(authController: widget.authController)),
+                    );
+                  },
+                  child: const Text('¿Olvidaste tu contraseña?', style: TextStyle(color: Color(0xFF185FA5))),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: widget.authController.status == AuthStatus.authenticating
+                      ? null
+                      : () => widget.authController.loginWithEmail(
+                            _emailController.text.trim(),
+                            _passwordController.text.trim(),
+                          ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF185FA5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Iniciar Sesión', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              const Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text('O', style: TextStyle(color: Colors.grey)),
+                  ),
+                  Expanded(child: Divider()),
+                ],
+              ),
+              const SizedBox(height: 16),
+              
+              if (widget.authController.status == AuthStatus.authenticating)
+                const Center(child: CircularProgressIndicator())
+              else ...[
+                _SocialButton(
+                  label: 'Continuar con Google',
+                  icon: Icons.login,
+                  onPressed: () => widget.authController.loginWithGoogle(),
+                  color: Colors.red[700]!,
+                ),
+              ],
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('¿No tienes cuenta?'),
+                  TextButton(
+                    onPressed: () {
+                      widget.authController.resetError(); // Limpia errores previos
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => RegisterScreen(authController: widget.authController)),
+                      );
+                    },
+                    child: const Text('Regístrate', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF185FA5))),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class HistoryScreen extends StatelessWidget {
+  const HistoryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        title: const Text('Historial de Inspecciones', 
+            style: TextStyle(color: Color(0xFF185FA5), fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Color(0xFF185FA5)),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        // Se asume la colección 'inspecciones' basada en el flujo de guardado del sistema
+        stream: FirebaseFirestore.instance
+            .collection('inspecciones')
+            .orderBy('fechaHora', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Error al cargar datos: ${snapshot.error}'));
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return const Center(child: Text('Aún no tienes inspecciones registradas.'));
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              final data = docs[index].data() as Map<String, dynamic>;
+              final date = (data['fechaHora'] as Timestamp?)?.toDate() ?? DateTime.now();
+              
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  leading: const Icon(Icons.analytics_outlined, color: Color(0xFF185FA5)),
+                  title: Text('Daño: ${data['clase'] ?? 'Desconocido'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('Fecha: ${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class RegisterScreen extends StatefulWidget {
+  final AuthController authController;
+  const RegisterScreen({super.key, required this.authController});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Crear Cuenta')),
+      body: AnimatedBuilder(
+        animation: widget.authController,
+        builder: (context, _) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              children: [
+                if (widget.authController.errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Text(widget.authController.errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red, fontSize: 13, fontWeight: FontWeight.w500)),
+                  ),
+                const Text('Completa tus datos para empezar', style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 32),
+                TextField(
+                  controller: _emailController,
+                  decoration: InputDecoration(
+                    labelText: 'Correo electrónico',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Contraseña',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _confirmPasswordController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Confirmar Contraseña',
+                    prefixIcon: const Icon(Icons.lock_reset_outlined),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: widget.authController.status == AuthStatus.authenticating
+                        ? null
+                        : () async {
+                            if (_passwordController.text != _confirmPasswordController.text) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Las contraseñas no coinciden')),
+                              );
+                              return;
+                            }
+                            try {
+                              await widget.authController.registerWithEmail(
+                                _emailController.text.trim(),
+                                _passwordController.text.trim(),
+                              );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('¡Registro exitoso! Verifica tu correo e inicia sesión.'),
+                                    backgroundColor: Colors.green,
+                                    duration: Duration(seconds: 5),
+                                  ),
+                                );
+                                Navigator.pop(context); // Regresa al Login
+                              }
+                            } catch (e) {
+                              // El error se muestra mediante el AnimatedBuilder
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF185FA5),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: widget.authController.status == AuthStatus.authenticating
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        : const Text('Registrarse', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class ForgotPasswordScreen extends StatefulWidget {
+  final AuthController authController;
+  const ForgotPasswordScreen({super.key, required this.authController});
+
+  @override
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final _emailController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Recuperar Contraseña')),
+      body: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          children: [
+            if (widget.authController.errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(widget.authController.errorMessage!, 
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.red, fontSize: 12)),
+              ),
+
+            const Text(
+              'Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 32),
+            TextField(
+              controller: _emailController,
+              decoration: InputDecoration(
+                labelText: 'Correo electrónico',
+                prefixIcon: const Icon(Icons.email_outlined),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  try {
+                    await widget.authController.recoverPassword(_emailController.text.trim());
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Correo de recuperación enviado')));
+                      Navigator.pop(context);
+                    }
+                  } catch (e) {
+                    // Error manejado por el controller
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF185FA5),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Enviar Enlace', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            ],
+          ),
+        ),
+    );
+  }
+}
+
+class _SocialButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final Color color;
+
+  const _SocialButton({required this.label, required this.icon, required this.onPressed, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20),
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
     );
   }
 }
@@ -52,17 +517,63 @@ class AMIVIApp extends StatelessWidget {
 //EL STATEFUL WIDGET ESCUCHA LOS CAMBIOS EN EL CONTROLADOR Y RECONSTRUYE LA UI EN CONSECUENCIA.
 class ClassificationScreen extends StatefulWidget {
   final ClassificationController controller;
+  final AuthController authController;
 
-  const ClassificationScreen({super.key, required this.controller});
+  const ClassificationScreen({super.key, required this.controller, required this.authController});
 
   @override
   State<ClassificationScreen> createState() => _ClassificationScreenState();
+
 }
 //LA CLASE _ClassificationScreenState CONTIENE LA LÓGICA DE
 //INTERACCIÓN CON EL USUARIO, COMO SELECCIONAR IMAGEN, MOSTRAR RESULTADOS, 
 //MANEJAR ERRORES, Y MOSTRAR DIÁLOGOS DE CONFIRMACIÓN O EDICIÓN.
 
 class _ClassificationScreenState extends State<ClassificationScreen> {
+  Widget _buildDrawer(BuildContext context) {
+    final user = widget.authController.currentUser;
+    return Drawer(
+      child: Column(
+        children: [
+          UserAccountsDrawerHeader(
+            decoration: const BoxDecoration(color: Color(0xFF185FA5)),
+            currentAccountPicture: CircleAvatar(
+              backgroundColor: Colors.white,
+              child: user?.photoUrl != null
+                  ? ClipOval(child: Image.network(user!.photoUrl!))
+                  : const Icon(Icons.person, color: Color(0xFF185FA5), size: 40),
+            ),
+            accountName: Text(user?.displayName ?? 'Usuario AMIVI',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            accountEmail: Text(user?.email ?? ''),
+          ),
+          ListTile(
+            leading: const Icon(Icons.history, color: Color(0xFF185FA5)),
+            title: const Text('Mis Inspecciones'),
+            subtitle: const Text('Ver registros anteriores'),
+            onTap: () {
+              Navigator.pop(context); // Cerrar drawer
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              );
+            },
+          ),
+          const Spacer(),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.redAccent),
+            title: const Text('Cerrar Sesión'),
+            onTap: () {
+              Navigator.pop(context);
+              widget.authController.logout();
+            },
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
   final ImagePicker _picker = ImagePicker();
   // [HU-IA-01] Umbral de confianza para sugerir validación manual
   static const double _minConfidenceForManualValidation = 0.75; // 75%
@@ -206,6 +717,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
           appBar: AppBar(
             backgroundColor: Colors.white,
             elevation: 0,
+            iconTheme: const IconThemeData(color: Color(0xFF185FA5)),
             title: Row(
               children: [
                 Container(
@@ -233,7 +745,15 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                 ),
               ],
             ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.logout, color: Color(0xFF185FA5)),
+                onPressed: () => widget.authController.logout(),
+                tooltip: 'Cerrar sesión',
+              ),
+            ],
           ),
+          drawer: _buildDrawer(context),
           body: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
