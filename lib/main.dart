@@ -11,8 +11,10 @@ import 'src/application/usecases/classify_road_image_usecase.dart';
 import 'src/application/usecases/save_inspection_usecase.dart';
 import 'src/domain/entities/road_incidence.dart';
 import 'src/domain/valueobjects/damage_level.dart';
+import 'src/adapters/out/location/geolocator_adapter.dart';
 import 'src/adapters/out/auth/firebase_auth_adapter.dart';
 import 'src/adapters/in/controllers/auth_controller.dart';
+import 'src/adapters/out/persistence/local_storage_adapter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,9 +32,14 @@ class AMIVIApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final aiAdapter = AiDetectorAdapter();
     final firestoreAdapter = FirestoreAdapter();
+    final locationAdapter = GeolocatorAdapter();
+    // Instanciamos el adaptador para almacenamiento local (HU-17/18)
+    final localAdapter = LocalStorageAdapter();
+    
     final classifyUsecase = ClassifyRoadImageUsecase(aiAdapter);
-    final saveUsecase = SaveInspectionUsecase(firestoreAdapter);
-    final controller = ClassificationController(classifyUsecase, saveUsecase);
+    // Inyectamos el localAdapter en el caso de uso y en el controlador
+    final saveUsecase = SaveInspectionUsecase(firestoreAdapter, localAdapter);
+    final controller = ClassificationController(classifyUsecase, saveUsecase, locationAdapter, localAdapter);
 
     final authAdapter = FirebaseAuthAdapter();
     final authController = AuthController(authAdapter);
@@ -266,17 +273,111 @@ class HistoryScreen extends StatelessWidget {
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
-                  leading: const Icon(Icons.analytics_outlined, color: Color(0xFF185FA5)),
-                  title: Text('Daño: ${data['clase'] ?? 'Desconocido'}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('Fecha: ${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}'),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    // [HU-15 - Escenario 1]: Navegación al detalle de la incidencia.
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => InspectionDetailScreen(data: data, docId: docs[index].id),
+                      ),
+                    );
+                  },
+                  child: ListTile(
+                    leading: const Icon(Icons.analytics_outlined, color: Color(0xFF185FA5)),
+                    title: Text('Daño: ${data['clase']?.toUpperCase() ?? 'N/A'}', 
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('Fecha: ${date.day}/${date.month}/${date.year}'),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                  ),
                 ),
               );
             },
           );
         },
       ),
+    );
+  }
+}
+
+class InspectionDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final String docId;
+
+  const InspectionDetailScreen({super.key, required this.data, required this.docId});
+
+  @override
+  Widget build(BuildContext context) {
+    // [HU-15 - Escenario 2]: Manejo de datos incompletos o no encontrados.
+    if (data.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Error')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.search_off, size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              const Text('No se pudo recuperar la información de la incidencia.', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final date = (data['fechaHora'] as Timestamp?)?.toDate() ?? DateTime.now();
+    final lat = data['latitud'];
+    final lng = data['longitud'];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Detalle de Inspección', style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(data['imagenUrl'] ?? '', 
+                  height: 250, width: double.infinity, fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(height: 200, color: Colors.grey[300], child: const Icon(Icons.broken_image))),
+            ),
+            const SizedBox(height: 20),
+            _buildInfoRow('Tipo de Daño', data['clase']?.toString().toUpperCase() ?? 'N/A', Icons.warning_amber_rounded),
+            _buildInfoRow('Confianza Estimada', '${((data['confianza'] ?? 0) * 100).toStringAsFixed(1)}%', Icons.verified_outlined),
+            _buildInfoRow('Fecha y Hora', '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}', Icons.calendar_today),
+            _buildInfoRow('Dirección', data['direccion'] ?? 'No registrada', Icons.location_on),
+            if (lat != null && lng != null)
+              _buildInfoRow('Coordenadas', '$lat, $lng', Icons.gps_fixed),
+            const Divider(height: 32),
+            const Text('Observaciones', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 8),
+            Text(data['observaciones'] ?? 'Sin observaciones adicionales.', style: const TextStyle(fontSize: 14, color: Colors.black87)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF185FA5)),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ],
+       ),
     );
   }
 }
@@ -559,6 +660,46 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
               );
             },
           ),
+          // [HU-16/18]: Opción de sincronización manual para reportes guardados localmente
+          if (widget.controller.pendingCount > 0)
+            ...[
+              const Divider(),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  'PENDIENTES DE ENVÍO',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: widget.controller.syncStatus == SyncStatus.syncing
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Badge(
+                        backgroundColor: Colors.orange,
+                        label: Text('${widget.controller.pendingCount}'),
+                        child: const Icon(Icons.cloud_upload_outlined, color: Color(0xFF185FA5)),
+                      ),
+                title: const Text('Sincronizar ahora'),
+                subtitle: Text(
+                  widget.controller.syncStatus == SyncStatus.error
+                      ? 'Error en la conexión'
+                      : 'Toca para subir ${widget.controller.pendingCount} registros',
+                ),
+                onTap: () async {
+                  await widget.controller.syncPendingReports();
+                  if (context.mounted && widget.controller.syncStatus == SyncStatus.completed) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Sincronización completada con éxito')),
+                    );
+                  }
+                },
+              ),
+            ],
           const Spacer(),
           const Divider(),
           ListTile(
@@ -603,6 +744,45 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
     }
   }
 
+  // [HU-13/17]: Diálogo de éxito que limpia la interfaz para un nuevo flujo.
+  void _showSuccessRegistrationDialog(BuildContext context, ClassificationController controller) {
+    final bool isOffline = controller.savedDocumentId?.startsWith('offline_') ?? false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Obliga al usuario a interactuar con el botón
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              isOffline ? Icons.cloud_off_outlined : Icons.check_circle_outline,
+              color: const Color(0xFF3B6D11),
+            ),
+            const SizedBox(width: 10),
+            const Text('Registro Exitoso'),
+          ],
+        ),
+        content: Text(
+          isOffline
+              ? 'La inspección se guardó localmente en el dispositivo. Podrás sincronizarla después desde el menú lateral cuando tengas internet.'
+              : 'La inspección ha sido registrada correctamente en la nube.',
+          style: const TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              controller.reset(); // [HU-13]: Limpia todo para volver a registrar otra inspección
+            },
+            child: const Text('ACEPTAR', 
+              style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF185FA5))),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -622,7 +802,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
           mainAxisSize: MainAxisSize.min,
           children: DamageLevel.values.map((level) {
             return ListTile(
-              leading: Icon(Icons.label_important_outline, color: _getColorForLevel(level)),
+              leading: Icon(_getIconDataForLevel(level), color: _getColorForLevel(level)),
               title: Text(level.label),
               onTap: () {
                 controller.updateDamageLevel(level);
@@ -692,15 +872,15 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
     }
   }
 //SE ASOCIAN ICONOS SIMBÓLICOS PARA CADA NIVEL DE DAÑO, 
-// [HU-12] Lógica de iconos para una visualización clara e interpretable del resultado.
-  String _getIconForLevel(DamageLevel level) {
+  // [HU-12] Lógica de iconos profesionales para una visualización clara e interpretable del resultado.
+  IconData _getIconDataForLevel(DamageLevel level) {
     switch (level) {
       case DamageLevel.normal:
-        return '✓';
+        return Icons.check_circle_outline;
       case DamageLevel.leve:
-        return '⚠';
+        return Icons.info_outline;
       case DamageLevel.danado:
-        return '✕';
+        return Icons.error_outline;
     }
   }
 //EL AnimatedBuilder ESCUCHA LOS CAMBIOS EN EL CONTROLADOR 
@@ -850,41 +1030,78 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                 const SizedBox(height: 12),
 
                 // Botón clasificar
-                ElevatedButton(
-                  onPressed: controller.selectedImagePath != null &&
-                          controller.state != ClassificationState.loading
-                      // [PMV1 - HU-08 - Escenario 1]: El usuario solicita el análisis automático.
-                      ? () => widget.controller.classify()
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF185FA5),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ), // [HU-08] Feedback visual de carga.
-                  // Feedback visual durante el tiempo razonable de procesamiento (HU-08 S1).
-                  child: controller.state == ClassificationState.loading
-                      ? const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 2),
-                            ),
-                            SizedBox(width: 10),
-                            Text('Analizando...'),
-                          ],
-                        )
-                      : const Text('Clasificar imagen',
-                          style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w600)),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton(
+                        onPressed: controller.selectedImagePath != null &&
+                                controller.state != ClassificationState.loading
+                            // [PMV1 - HU-08 - Escenario 1]: El usuario solicita el análisis automático.
+                            ? () => widget.controller.classify()
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF185FA5),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: controller.state == ClassificationState.loading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Text('Clasificar con IA', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: OutlinedButton(
+                        onPressed: controller.selectedImagePath != null &&
+                                controller.state != ClassificationState.loading
+                            // [HU-14 - Escenario 1]: Registro manual.
+                            ? () => widget.controller.startManualRegistration()
+                            : null,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: BorderSide(
+                            color: controller.selectedImagePath != null && controller.state != ClassificationState.loading
+                                ? const Color(0xFF185FA5)
+                                : Colors.grey.shade400,
+                          ),
+                          foregroundColor: const Color(0xFF185FA5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Manual', style: TextStyle(fontSize: 14)),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
 
                 // Resultado
+                if (controller.warningMessage != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF4E5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_off_outlined, color: Colors.orange, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text('Aviso: ${controller.warningMessage!}', style: const TextStyle(color: Color(0xFF663C00), fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 if (controller.state == ClassificationState.success &&
                     controller.result != null)
                   // [PMV1 - HU-12 - Escenario 1]: Presentación del resultado interpretable.
@@ -932,7 +1149,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
       RoadIncidence result, ClassificationController controller) {
     final color = _getColorForLevel(result.damageLevel);
     final bgColor = _getBgColorForLevel(result.damageLevel);
-    final icon = _getIconForLevel(result.damageLevel);
+    final iconData = _getIconDataForLevel(result.damageLevel);
 
     // [PMV1 - HU-IA-01 - Escenario 1]: Clasificación automática exitosa con confianza.
     return Column(
@@ -948,7 +1165,8 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
           child: Column(
             children: [
               // [PMV1 - HU-12 - Escenario 1]: Visualización del tipo de daño.
-              Text(icon, style: TextStyle(fontSize: 36, color: color)),
+              Icon(iconData, size: 48, color: color),
+              const SizedBox(height: 8),
               Text(result.damageLevel.label,
                   style: TextStyle(
                       fontSize: 22,
@@ -967,11 +1185,77 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                     fontWeight: FontWeight.w600,
                     color: color),
               ),
+              const SizedBox(height: 12),
+              // [HU-07]: Visualización de metadatos (Fecha, Hora y Ubicación)
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildMetadataTag(
+                    Icons.calendar_today_outlined, 
+                    '${result.detectedAt.day}/${result.detectedAt.month}/${result.detectedAt.year} ${result.detectedAt.hour.toString().padLeft(2, '0')}:${result.detectedAt.minute.toString().padLeft(2, '0')}',
+                    color
+                  ),
+                  if (result.latitude != null && result.longitude != null)
+                    _buildMetadataTag(
+                      Icons.location_on_outlined,
+                      '${result.latitude!.toStringAsFixed(4)}, ${result.longitude!.toStringAsFixed(4)}',
+                      color
+                    ),
+                  if (controller.georefLatencyMs != null)
+                    _buildMetadataTag(
+                      Icons.speed_outlined,
+                      'GPS: ${(controller.georefLatencyMs! / 1000).toStringAsFixed(1)}s',
+                      color
+                    ),
+                ],
+              ),
             ],
           ),
         ),
         const SizedBox(height: 12),
 
+        // [HU-07]: Campo de observaciones para enriquecer el reporte vial
+        if (controller.saveState != SaveState.saved) ...[
+          if (result.latitude == null || result.longitude == null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF4E5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.shade300),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.edit_location_alt_outlined, color: Colors.orange, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Sin ubicación: Por seguridad, indica la dirección exacta o puntos de referencia en el campo de Observaciones.',
+                      style: TextStyle(color: Color(0xFF663C00), fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TextField(
+              onChanged: (value) => controller.setObservations(value),
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: 'Observaciones',
+                hintText: 'Ej: Grieta profunda en carril derecho...',
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                prefixIcon: const Icon(Icons.edit_note_outlined),
+              ),
+            ),
+          ),
+        ],
+        
         if (result.confidence < _minConfidenceForManualValidation)
           Container(
             // [PMV1 - HU-IA-01 - Escenario 2]: La baja confianza indica necesidad de validación manual.
@@ -1162,10 +1446,16 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         // Botón registrar inspección y editar (HU-13)
         if (controller.saveState != SaveState.saved) ...[
           ElevatedButton.icon(
-            onPressed: controller.saveState == SaveState.saving
+            onPressed: (controller.saveState == SaveState.saving || controller.selectedImagePath == null)
                 ? null
                 // [PMV1 - HU-13 - Escenario 1]: Acción de confirmar el resultado.
-                : () => controller.saveInspection(),
+                : () async {
+                    await controller.saveInspection();
+                    // Al terminar con éxito, mostramos el diálogo de confirmación y limpieza
+                    if (mounted && controller.saveState == SaveState.saved) {
+                      _showSuccessRegistrationDialog(context, controller);
+                    }
+                  },
             icon: controller.saveState == SaveState.saving
                 ? const SizedBox(
                     width: 16,
@@ -1207,27 +1497,6 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
           ),
         ],
 
-        // Confirmación guardado
-        if (controller.saveState == SaveState.saved)
-          Container(
-            padding: const EdgeInsets.all(16),
-            // Finalización exitosa de HU-13 Escenario 1.
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF3DE),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.check_circle_outline, color: Color(0xFF3B6D11)),
-                SizedBox(width: 10),
-                Text('Inspección registrada correctamente',
-                    style: TextStyle(
-                        color: Color(0xFF3B6D11),
-                        fontWeight: FontWeight.w500)),
-              ],
-            ),
-          ),
-
         // Error guardado
         if (controller.saveState == SaveState.error)
           // Error durante el proceso de guardado (HU-13).
@@ -1256,6 +1525,27 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
           child: const Text('Descartar y nueva inspección'),
         ),
       ],
+    );
+  }
+
+  Widget _buildMetadataTag(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: color),
+          ),
+        ],
+      ),
     );
   }
 

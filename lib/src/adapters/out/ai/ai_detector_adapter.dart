@@ -67,6 +67,13 @@ class AiDetectorAdapter implements AiDetectorPort {
   // ── Persistencia de imagen en directorio permanente ──────────────────
 
   Future<String> _persistImage(String imagePath) async {
+    final sourceFile = File(imagePath);
+    
+    // [REPARACIÓN]: Verificamos si el archivo de caché aún existe antes de intentar copiarlo.
+    if (!await sourceFile.exists()) {
+      throw Exception('La imagen ya no se encuentra en la memoria temporal. Por favor, selecciónela de nuevo.');
+    }
+
     final appDir = await getApplicationDocumentsDirectory();
     final fileName =
         '${DateTime.now().millisecondsSinceEpoch}_${path.basename(imagePath)}';
@@ -80,10 +87,18 @@ class AiDetectorAdapter implements AiDetectorPort {
   @override
   Future<RoadIncidence> classifyImage(String imagePath) async {
     await _loadModel();
+    
+    String safePath;
+    img.Image? image;
 
-    final safePath = await _persistImage(imagePath);
-    final rawBytes = await File(safePath).readAsBytes();
-    img.Image? image = img.decodeImage(rawBytes);
+    try {
+      safePath = await _persistImage(imagePath);
+      final rawBytes = await File(safePath).readAsBytes();
+      image = img.decodeImage(rawBytes);
+    } catch (e) {
+      throw Exception('Error al procesar el archivo: La imagen es inaccesible o fue eliminada por el sistema.');
+    }
+
     if (image == null) throw Exception('No fue posible procesar la imagen (formato no soportado o archivo corrupto).');
 
     final input = _preprocessImage(image);
@@ -140,6 +155,10 @@ class AiDetectorAdapter implements AiDetectorPort {
       confidence: maxProb,
       probabilities: probMap,
       detectedAt: DateTime.now(),
+      latitude: null,
+      longitude: null,
+      address: null, // HU-07: Inicialmente nulo, se asigna en el controlador
+      observations: null, // HU-07: Inicialmente nulo, se asigna en el controlador
     );
   }
 

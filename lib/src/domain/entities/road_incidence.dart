@@ -8,6 +8,10 @@ class RoadIncidence {
   final double confidence;
   final Map<DamageLevel, double> probabilities;
   final DateTime detectedAt;
+  final double? latitude;  // HU-06
+  final double? longitude; // HU-06
+  final String? address;     // HU-07: Dirección aproximada
+  final String? observations; // HU-07: Notas del inspector
 
   const RoadIncidence({
     required this.id,
@@ -17,6 +21,10 @@ class RoadIncidence {
     required this.confidence,
     required this.probabilities,
     required this.detectedAt,
+    this.latitude,
+    this.longitude,
+    this.address,
+    this.observations,
   });
 
   bool get requiresIntervention => damageLevel == DamageLevel.danado;

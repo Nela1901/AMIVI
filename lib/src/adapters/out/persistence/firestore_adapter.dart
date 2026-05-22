@@ -35,8 +35,10 @@ class FirestoreAdapter implements SaveInspectionPort {
   Future<String> saveInspection({
     required RoadIncidence incidence,
     required String imagePath,
-    required double latitud,
-    required double longitud,
+    double? latitud,
+    double? longitud,
+    String? direccion,
+    String? observaciones,
   }) async {
     // Subir imagen a Cloudinary
     final imageUrl = await _uploadToCloudinary(imagePath);
@@ -49,8 +51,10 @@ class FirestoreAdapter implements SaveInspectionPort {
       'imagenUrl': imageUrl,
       'clase': incidence.damageLevel.name,
       'confianza': incidence.confidence,
-      'latitud': latitud,
-      'longitud': longitud,
+      'latitud': latitud, // HU-06: Coordenada asociada al reporte de la incidencia vial
+      'longitud': longitud, // HU-06: Coordenada asociada al reporte de la incidencia vial
+      'direccion': direccion, // HU-07: Dirección aproximada obtenida
+      'observaciones': observaciones, // HU-07: Información complementaria
       'fechaHora': FieldValue.serverTimestamp(),
       'requiereIntervencion': incidence.requiresIntervention,
       'requiereMonitoreo': incidence.requiresMonitoring,

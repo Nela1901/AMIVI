@@ -4,7 +4,9 @@ abstract interface class SaveInspectionPort {
   Future<String> saveInspection({
     required RoadIncidence incidence,
     required String imagePath,
-    required double latitud,
-    required double longitud,
+    double? latitud,
+    double? longitud,
+    String? direccion,
+    String? observaciones,
   });
 }
