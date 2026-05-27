@@ -677,6 +677,20 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                 ),
               ),
               ListTile(
+                leading: const Icon(Icons.list_alt_outlined, color: Color(0xFF185FA5)),
+                title: const Text('Gestionar Pendientes'),
+                subtitle: const Text('Ver y borrar reportes locales'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PendingReportsScreen(controller: widget.controller),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
                 leading: widget.controller.syncStatus == SyncStatus.syncing
                     ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                     : Badge(
@@ -686,15 +700,23 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
                       ),
                 title: const Text('Sincronizar ahora'),
                 subtitle: Text(
-                  widget.controller.syncStatus == SyncStatus.error
-                      ? 'Error en la conexión'
+                  widget.controller.syncStatus == SyncStatus.error 
+                      ? 'Error en la sincronización' 
                       : 'Toca para subir ${widget.controller.pendingCount} registros',
+                  style: TextStyle(
+                    color: widget.controller.syncStatus == SyncStatus.error ? Colors.red : Colors.grey[600],
+                    fontWeight: widget.controller.syncStatus == SyncStatus.error ? FontWeight.bold : FontWeight.normal,
+                  ),
                 ),
                 onTap: () async {
                   await widget.controller.syncPendingReports();
                   if (context.mounted && widget.controller.syncStatus == SyncStatus.completed) {
+                    // [HU-16 - Escenario 1]: Notificación de éxito
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Sincronización completada con éxito')),
+                      const SnackBar(
+                        content: Text('Sincronización completada con éxito'),
+                        backgroundColor: Colors.green,
+                      ),
                     );
                   }
                 },
@@ -1565,6 +1587,108 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
         Text(label,
             style: const TextStyle(fontSize: 10, color: Colors.grey)),
       ],
+    );
+  }
+}
+
+class PendingReportsScreen extends StatelessWidget {
+  final ClassificationController controller;
+
+  const PendingReportsScreen({super.key, required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final reports = controller.pendingReportsList;
+        final isAllSelected = reports.isNotEmpty && controller.selectedCount == reports.length;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Pendientes de Envío', style: TextStyle(fontWeight: FontWeight.bold)),
+            actions: [
+              if (reports.isNotEmpty)
+                IconButton(
+                  icon: Icon(isAllSelected ? Icons.check_box : Icons.check_box_outline_blank),
+                  tooltip: 'Seleccionar todo',
+                  onPressed: () => controller.toggleSelectAll(),
+                ),
+              if (reports.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.delete_sweep, color: Colors.red),
+                  tooltip: 'Borrar seleccionados',
+                  onPressed: controller.selectedCount > 0 ? () => _confirmDeleteSelected(context) : null,
+                ),
+            ],
+          ),
+          body: reports.isEmpty
+              ? const Center(child: Text('No hay reportes pendientes.'))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: reports.length,
+                  itemBuilder: (context, index) {
+                    final report = reports[index];
+                    final date = DateTime.parse(report['fechaHora']);
+                    
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      child: CheckboxListTile(
+                        value: controller.selectedIds.contains(report['id']),
+                        onChanged: (_) => controller.toggleSelection(report['id']),
+                        activeColor: const Color(0xFF185FA5),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        secondary: const Icon(Icons.cloud_off, color: Colors.orange),
+                        title: Text('Daño: ${report['clase']?.toUpperCase()}', 
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        subtitle: Text('Fecha: ${date.day}/${date.month}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+                          style: const TextStyle(fontSize: 12)),
+                      ),
+                    );
+                  },
+                ),
+          floatingActionButton: reports.isNotEmpty
+              ? FloatingActionButton.extended(
+                  onPressed: controller.syncStatus == SyncStatus.syncing
+                      ? null
+                      : () => controller.syncPendingReports(
+                            specificIds: controller.selectedCount > 0 ? controller.selectedIds.toList() : null,
+                          ),
+                  label: Text(controller.syncStatus == SyncStatus.syncing 
+                      ? 'Sincronizando...' 
+                      : (controller.selectedCount > 0 ? 'Subir Seleccionados (${controller.selectedCount})' : 'Sincronizar Todo')),
+                  icon: controller.syncStatus == SyncStatus.syncing 
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.sync),
+                  backgroundColor: const Color(0xFF185FA5),
+                  foregroundColor: Colors.white,
+                )
+              : null,
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteSelected(BuildContext context) {
+    final count = controller.selectedCount;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('¿Borrar $count reportes?'),
+        content: const Text('Esta acción eliminará permanentemente los registros seleccionados del dispositivo.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR')),
+          TextButton(
+            onPressed: () async {
+              for (var id in controller.selectedIds.toList()) {
+                await controller.deletePendingReport(id);
+              }
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('BORRAR', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 }

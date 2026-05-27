@@ -60,4 +60,12 @@ class LocalStorageAdapter implements LocalStoragePort {
     reports.removeWhere((r) => r['id'] == id);
     await file.writeAsString(json.encode(reports));
   }
+
+  @override
+  Future<void> deleteAllReports() async {
+    final file = await _getLocalFile();
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
 }

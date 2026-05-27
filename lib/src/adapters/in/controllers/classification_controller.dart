@@ -40,6 +40,8 @@ class ClassificationController extends ChangeNotifier {
   String? _savedDocumentId;
   String _observations = ''; // HU-07
   int _pendingCount = 0;
+  List<Map<String, dynamic>> _pendingReportsList = []; // [NUEVO]: Lista para gestión
+  final Set<String> _selectedIds = {}; // [NUEVO]: IDs seleccionados para gestión
 
   ClassificationState get state => _state;
   SaveState get saveState => _saveState;
@@ -52,62 +54,119 @@ class ClassificationController extends ChangeNotifier {
   String? get savedDocumentId => _savedDocumentId;
   String get observations => _observations; // HU-07
   int get pendingCount => _pendingCount;
+  List<Map<String, dynamic>> get pendingReportsList => _pendingReportsList;
+  Set<String> get selectedIds => _selectedIds;
+  int get selectedCount => _selectedIds.length;
 
   Future<void> updatePendingCount() async {
-    final pending = await _localStoragePort.getAllPendingReports();
-    _pendingCount = pending.length;
+    _pendingReportsList = await _localStoragePort.getAllPendingReports();
+    _pendingCount = _pendingReportsList.length;
+    
+    // Limpiar IDs seleccionados que ya no existen
+    _selectedIds.retainWhere((id) => _pendingReportsList.any((r) => r['id'] == id));
+    
     notifyListeners();
   }
 
+  void toggleSelection(String id) {
+    if (_selectedIds.contains(id)) {
+      _selectedIds.remove(id);
+    } else {
+      _selectedIds.add(id);
+    }
+    notifyListeners();
+  }
+
+  void toggleSelectAll() {
+    if (_selectedIds.length == _pendingReportsList.length && _pendingReportsList.isNotEmpty) {
+      _selectedIds.clear();
+    } else {
+      _selectedIds.addAll(_pendingReportsList.map((r) => r['id'] as String));
+    }
+    notifyListeners();
+  }
+
+  Future<void> deletePendingReport(String id) async {
+    await _localStoragePort.deleteReport(id);
+    _selectedIds.remove(id);
+    await updatePendingCount();
+  }
+
+  Future<void> clearAllPendingReports() async {
+    await _localStoragePort.deleteAllReports();
+    _selectedIds.clear();
+    await updatePendingCount();
+  }
+
   // [HU-16/18]: Sincronización automática de reportes pendientes.
-  Future<void> syncPendingReports() async {
-    final pending = await _localStoragePort.getAllPendingReports();
+  Future<void> syncPendingReports({List<String>? specificIds}) async {
+    if (_syncStatus == SyncStatus.syncing) return; // [HU-18]: Evita duplicidad por clics múltiples
+
+    final allPending = await _localStoragePort.getAllPendingReports();
+    final pending = specificIds == null 
+        ? allPending 
+        : allPending.where((r) => specificIds.contains(r['id'])).toList();
+
     if (pending.isEmpty) return;
 
     _syncStatus = SyncStatus.syncing;
+    _warningMessage = null;
+    _errorMessage = null;
     notifyListeners();
 
+    bool hasItemError = false;
     try {
       for (var report in pending) {
-        // [HU-18]: Validación de ID para evitar errores en el borrado local
-        if (report['id'] == null) continue;
+        try {
+          // [HU-18]: Validación de ID para evitar errores en el borrado local
+          if (report['id'] == null) continue;
 
-        // Robustez en el mapeo: Buscamos coincidencia ignorando mayúsculas/minúsculas y manejamos fallos
-        final damageLevel = DamageLevel.values.firstWhere(
-          (e) => e.name.toLowerCase() == report['clase'].toString().toLowerCase() || 
-                 e.label.toLowerCase() == report['clase'].toString().toLowerCase(),
-          orElse: () => DamageLevel.normal,
-        );
+          // Robustez en el mapeo de clases
+          final damageLevel = DamageLevel.values.firstWhere(
+            (e) => e.name.toLowerCase() == report['clase'].toString().toLowerCase() || 
+                   e.label.toLowerCase() == report['clase'].toString().toLowerCase(),
+            orElse: () => DamageLevel.normal,
+          );
 
-        // [HU-18 - Escenario 1]: Sincronización sin pérdida de información.
-        final resultId = await _saveInspectionUsecase.execute(
-          RoadIncidence(
-            id: report['id'],
-            imagePath: report['imagePath'],
-            damageLevel: damageLevel,
-            confidence: report['confianza'],
-            probabilities: {}, // Simplificado para sync
-            detectedAt: DateTime.parse(report['fechaHora']),
-            latitude: report['latitud'],
-            longitude: report['longitud'],
-            address: report['direccion'],
-          ),
-          report['imagePath'],
-          direccion: report['direccion'],
-          observaciones: report['observaciones'],
-        );
+          // [HU-18 - Escenario 1]: Sincronización individual
+          final resultId = await _saveInspectionUsecase.execute(
+            RoadIncidence(
+              id: report['id'],
+              imagePath: report['imagePath'],
+              damageLevel: damageLevel,
+              confidence: report['confianza'],
+              probabilities: {}, 
+              detectedAt: DateTime.parse(report['fechaHora']),
+              latitude: report['latitud'],
+              longitude: report['longitud'],
+              address: report['direccion'],
+            ),
+            report['imagePath'],
+            direccion: report['direccion'],
+            observaciones: report['observaciones'],
+            isSyncing: true, 
+          );
 
-        // [CRÍTICO]: Solo borramos del almacenamiento local si el ID devuelto NO es offline.
-        // Si resultId empieza con 'offline_', significa que se volvió a guardar localmente por red inestable.
-        if (resultId != null && !resultId.startsWith('offline_')) {
-          await _localStoragePort.deleteReport(report['id']);
+          if (resultId != null && !resultId.startsWith('offline_')) {
+            await _localStoragePort.deleteReport(report['id']);
+            // [HU-18]: Actualización optimizada de la lista en memoria
+            _pendingReportsList.removeWhere((r) => r['id'] == report['id']);
+            _pendingCount = _pendingReportsList.length;
+            notifyListeners();
+          }
+        } catch (itemError) {
+          hasItemError = true;
+          debugPrint('Error en reporte individual ${report['id']}: $itemError');
+          // Continuamos con el siguiente reporte del bucle
         }
       }
-      _syncStatus = SyncStatus.completed;
+      _syncStatus = hasItemError ? SyncStatus.error : SyncStatus.completed;
+      if (hasItemError && _pendingCount > 0) {
+        _errorMessage = 'Sincronización parcial: algunos registros fallaron.';
+      }
     } catch (e) {
-      // [HU-16 - Escenario 2]: Error de sincronización (Falla de red durante el envío).
       _syncStatus = SyncStatus.error;
-      _warningMessage = 'Sincronización incompleta: Se conservan reportes en el dispositivo.';
+      _errorMessage = 'Error crítico en el proceso de sincronización';
     }
     await updatePendingCount();
     notifyListeners();
@@ -263,7 +322,7 @@ class ClassificationController extends ChangeNotifier {
   }
 
   Future<void> saveInspection() async {
-    if (_result == null || _selectedImagePath == null) return;
+    if (_result == null || _selectedImagePath == null || _saveState == SaveState.saving) return;
 
     // [HU-07/14 - Escenario 2]: Validación de información mínima obligatoria.
     if (_selectedImagePath!.isEmpty) {
@@ -319,7 +378,8 @@ class ClassificationController extends ChangeNotifier {
         _saveState = SaveState.saved;
       }
     } catch (e) {
-      _errorMessage = 'Error al registrar inspección: $e';
+      // [HU-17 Escenario 2]: Manejo de error de almacenamiento local
+      _errorMessage = 'No fue posible almacenar la incidencia. Verifique el espacio disponible.';
       _saveState = SaveState.error;
     }
 

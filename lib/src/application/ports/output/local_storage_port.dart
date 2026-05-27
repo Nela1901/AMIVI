@@ -8,4 +8,6 @@ abstract interface class LocalStoragePort {
   Future<List<Map<String, dynamic>>> getAllPendingReports();
   
   Future<void> deleteReport(String id);
+
+  Future<void> deleteAllReports();
 }
