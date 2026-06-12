@@ -8,6 +8,10 @@
     <!-- Permisos para que el sistema reconozca el uso de Cámara y Galería -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    
+    <!-- [HU-22]: Permisos para notificaciones y vibración -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="AMIVI"
@@ -30,6 +34,10 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Configuración de Google Maps -->
+            <meta-data
+                android:name="com.google.android.geo.API_KEY"
+                android:value="${mapsApiKey}"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

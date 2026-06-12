@@ -9,6 +9,7 @@ import 'package:path/path.dart' as path;
 import '../../../domain/entities/road_incidence.dart';
 import '../../../domain/valueobjects/damage_level.dart';
 import '../../../application/ports/output/ai_detector_port.dart';
+import '../../../domain/exceptions/ai_classification_exception.dart';
 
 class AiDetectorAdapter implements AiDetectorPort {
   // ── Modelos ──────────────────────────────────────────────────────────
@@ -103,7 +104,26 @@ class AiDetectorAdapter implements AiDetectorPort {
 
     final input = _preprocessImage(image);
     final output = List.filled(3, 0.0).reshape([1, 3]);
-    _interpreter!.run(input, output);
+
+    try {
+      _interpreter!.run(input, output);
+    } on OutOfMemoryError catch (e) {
+      throw AiClassificationException(
+        "Memoria insuficiente para analizar la imagen. Cierra otras apps e intenta nuevamente.",
+        originalError: e,
+      );
+    } on StateError catch (e) {
+      throw AiClassificationException(
+        "El modelo de IA no se inicializó correctamente. Por favor, reinicia la app.",
+        originalError: e,
+        recoverable: false,
+      );
+    } on Exception catch (e) {
+      throw AiClassificationException(
+        "Error inesperado al analizar la imagen. Intenta nuevamente.",
+        originalError: e,
+      );
+    }
 
     final probabilities = List<double>.from(output[0] as List);
 

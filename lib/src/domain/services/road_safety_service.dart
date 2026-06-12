@@ -1,4 +1,5 @@
 import '../valueobjects/damage_level.dart';
+import '../constants/ai_thresholds.dart';
 
 /// Nivel de prioridad calculado para la intervención vial
 enum UrgencyLevel { critical, high, moderate, low, verificationRequired }
@@ -11,18 +12,18 @@ class RoadSafetyService {
   /// Calcula el nivel de urgencia basado en la severidad detectada y la confianza de la IA.
   UrgencyLevel determineUrgency(DamageLevel level, double confidence) {
     // Si la confianza es muy baja, independientemente del daño, requiere verificación humana
-    if (confidence < 0.65) {
+    if (confidence < AiThresholds.minimumConfidenceThreshold) {
       return UrgencyLevel.verificationRequired;
     }
 
     switch (level) {
       case DamageLevel.danado:
         // Daño severo con alta confianza es crítico
-        return confidence > 0.85 ? UrgencyLevel.critical : UrgencyLevel.high;
+        return confidence > AiThresholds.emergencyAlertThreshold ? UrgencyLevel.critical : UrgencyLevel.high;
       
       case DamageLevel.leve:
         // Daño leve es moderado si estamos seguros, si no, es bajo
-        return confidence > 0.80 ? UrgencyLevel.moderate : UrgencyLevel.low;
+        return confidence > AiThresholds.moderateDamageThreshold ? UrgencyLevel.moderate : UrgencyLevel.low;
       
       case DamageLevel.normal:
         return UrgencyLevel.low;

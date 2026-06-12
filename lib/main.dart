@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'src/adapters/out/ai/ai_detector_adapter.dart';
 import 'src/adapters/out/persistence/firestore_adapter.dart';
 import 'src/adapters/in/controllers/classification_controller.dart';
@@ -12,12 +13,17 @@ import 'src/application/usecases/save_inspection_usecase.dart';
 import 'src/domain/entities/road_incidence.dart';
 import 'src/domain/valueobjects/damage_level.dart';
 import 'src/adapters/out/location/geolocator_adapter.dart';
+import 'src/domain/constants/ai_thresholds.dart';
 import 'src/adapters/out/auth/firebase_auth_adapter.dart';
 import 'src/adapters/in/controllers/auth_controller.dart';
+import 'src/adapters/in/views/map_screen.dart';
 import 'src/adapters/out/persistence/local_storage_adapter.dart';
+import 'src/adapters/in/views/inspection_detail_screen.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
   await Firebase.initializeApp();
   runApp(AMIVIApp());
 }
@@ -70,7 +76,8 @@ class AuthWrapper extends StatelessWidget {
     return AnimatedBuilder(
       animation: authController,
       builder: (context, _) {
-        if (authController.status == AuthStatus.authenticated) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (authController.status == AuthStatus.authenticated && (user?.emailVerified ?? false)) {
           return ClassificationScreen(controller: classificationController, authController: authController);
         }
         return LoginScreen(authController: authController);
@@ -90,6 +97,17 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _isUnverified = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Comprobar si ya hay un usuario logueado pero no verificado al iniciar
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && !user.emailVerified) {
+      _isUnverified = true;
+    }
+  }
 
   @override
   void dispose() {
@@ -120,6 +138,42 @@ class _LoginScreenState extends State<LoginScreen> {
               const Text('AMIVI', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF185FA5))),
               const Text('Inspección Vial con IA', style: TextStyle(color: Colors.grey)),
               const SizedBox(height: 48),
+
+              if (_isUnverified)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 24),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Debes verificar tu correo electrónico antes de ingresar. Revisa tu bandeja de entrada.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.red, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () async {
+                          try {
+                            await FirebaseAuth.instance.currentUser?.sendEmailVerification();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Correo de verificación reenviado.')),
+                              );
+                            }
+                          } catch (e) {
+                            debugPrint('Error al reenviar: $e');
+                          }
+                        },
+                        child: const Text('Reenviar correo de verificación', style: TextStyle(color: Color(0xFF185FA5), fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
               
               if (widget.authController.errorMessage != null)
                 Padding(
@@ -168,10 +222,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: ElevatedButton(
                   onPressed: widget.authController.status == AuthStatus.authenticating
                       ? null
-                      : () => widget.authController.loginWithEmail(
-                            _emailController.text.trim(),
-                            _passwordController.text.trim(),
-                          ),
+                      : () async {
+                          await widget.authController.loginWithEmail(
+                                _emailController.text.trim(),
+                                _passwordController.text.trim(),
+                              );
+                          
+                          final user = FirebaseAuth.instance.currentUser;
+                          if (user != null) {
+                            await user.reload(); // Actualizar estado de verificación
+                            if (mounted) {
+                              if (!FirebaseAuth.instance.currentUser!.emailVerified) {
+                                setState(() => _isUnverified = true);
+                              } else {
+                                setState(() => _isUnverified = false);
+                              }
+                            }
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF185FA5),
                     foregroundColor: Colors.white,
@@ -231,7 +299,8 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 class HistoryScreen extends StatelessWidget {
-  const HistoryScreen({super.key});
+  final ClassificationController controller;
+  const HistoryScreen({super.key, required this.controller});
 
   @override
   Widget build(BuildContext context) {
@@ -248,6 +317,7 @@ class HistoryScreen extends StatelessWidget {
         // Se asume la colección 'inspecciones' basada en el flujo de guardado del sistema
         stream: FirebaseFirestore.instance
             .collection('inspecciones')
+            .where('uid', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
             .orderBy('fechaHora', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -301,87 +371,6 @@ class HistoryScreen extends StatelessWidget {
   }
 }
 
-class InspectionDetailScreen extends StatelessWidget {
-  final Map<String, dynamic> data;
-  final String docId;
-
-  const InspectionDetailScreen({super.key, required this.data, required this.docId});
-
-  @override
-  Widget build(BuildContext context) {
-    // [HU-15 - Escenario 2]: Manejo de datos incompletos o no encontrados.
-    if (data.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Error')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.search_off, size: 64, color: Colors.grey),
-              const SizedBox(height: 16),
-              const Text('No se pudo recuperar la información de la incidencia.', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final date = (data['fechaHora'] as Timestamp?)?.toDate() ?? DateTime.now();
-    final lat = data['latitud'];
-    final lng = data['longitud'];
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalle de Inspección', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(data['imagenUrl'] ?? '', 
-                  height: 250, width: double.infinity, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(height: 200, color: Colors.grey[300], child: const Icon(Icons.broken_image))),
-            ),
-            const SizedBox(height: 20),
-            _buildInfoRow('Tipo de Daño', data['clase']?.toString().toUpperCase() ?? 'N/A', Icons.warning_amber_rounded),
-            _buildInfoRow('Confianza Estimada', '${((data['confianza'] ?? 0) * 100).toStringAsFixed(1)}%', Icons.verified_outlined),
-            _buildInfoRow('Fecha y Hora', '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}', Icons.calendar_today),
-            _buildInfoRow('Dirección', data['direccion'] ?? 'No registrada', Icons.location_on),
-            if (lat != null && lng != null)
-              _buildInfoRow('Coordenadas', '$lat, $lng', Icons.gps_fixed),
-            const Divider(height: 32),
-            const Text('Observaciones', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 8),
-            Text(data['observaciones'] ?? 'Sin observaciones adicionales.', style: const TextStyle(fontSize: 14, color: Colors.black87)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: const Color(0xFF185FA5)),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-            ],
-          ),
-        ],
-       ),
-    );
-  }
-}
-
 class RegisterScreen extends StatefulWidget {
   final AuthController authController;
   const RegisterScreen({super.key, required this.authController});
@@ -395,12 +384,56 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
+  bool _hasMinLength = false;
+  bool _hasLowercase = false;
+  bool _hasNumber = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(_validatePassword);
+  }
+
+  void _validatePassword() {
+    final text = _passwordController.text;
+    setState(() {
+      _hasMinLength = text.length >= 8;
+      _hasLowercase = text.contains(RegExp(r'[a-z]'));
+      _hasNumber = text.contains(RegExp(r'[0-9]'));
+    });
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
+    _passwordController.removeListener(_validatePassword);
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  Widget _buildValidationRow(String text, bool isValid) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check : Icons.close,
+            color: isValid ? Colors.green : Colors.red,
+            size: 16,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: TextStyle(
+              color: isValid ? Colors.green : Colors.red,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -440,6 +473,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     prefixIcon: const Icon(Icons.lock_outline),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
+                ),
+                const SizedBox(height: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildValidationRow('Mínimo 8 caracteres', _hasMinLength),
+                    _buildValidationRow('Al menos una letra en minúscula', _hasLowercase),
+                    _buildValidationRow('Al menos un número', _hasNumber),
+                  ],
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -656,7 +698,19 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
               Navigator.pop(context); // Cerrar drawer
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+                MaterialPageRoute(builder: (context) => HistoryScreen(controller: widget.controller)),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.map_outlined, color: Color(0xFF185FA5)),
+            title: const Text('Mapa Interactivo'),
+            subtitle: const Text('Zonas afectadas en tiempo real'),
+            onTap: () {
+              Navigator.pop(context); // Cerrar drawer
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => MapScreen(controller: widget.controller)),
               );
             },
           ),
@@ -739,7 +793,7 @@ class _ClassificationScreenState extends State<ClassificationScreen> {
   }
   final ImagePicker _picker = ImagePicker();
   // [HU-IA-01] Umbral de confianza para sugerir validación manual
-  static const double _minConfidenceForManualValidation = 0.75; // 75%
+  static const double _minConfidenceForManualValidation = AiThresholds.manualValidationSuggestionThreshold; // 75%
 //EL METODO PICKIMAGE SE ENCARGA DE ABRIR LA CÁMARA O LA GALERÍA, 
 //MANEJAR LOS PERMISOS, Y ACTUALIZAR EL CONTROLADOR CON LA RUTA DE LA IMAGEN SELECCIONADA.
   Future<void> _pickImage(ImageSource source) async {

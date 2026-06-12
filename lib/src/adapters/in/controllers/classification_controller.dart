@@ -1,11 +1,19 @@
+import 'dart:async';
+import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../application/ports/input/classify_image_port.dart';
 import '../../../application/usecases/save_inspection_usecase.dart';
 import '../../../application/ports/output/location_port.dart';
 import '../../../domain/entities/road_incidence.dart';
+import '../../../domain/exceptions/ai_classification_exception.dart';
+import '../../../domain/constants/geo_thresholds.dart';
 import '../../../domain/valueobjects/damage_level.dart';
 import '../../../application/ports/output/local_storage_port.dart';
+import 'dart:math' show cos, sqrt, asin;
 
+import '../../../domain/services/road_safety_service.dart'; // Import RoadSafetyService
 //DEFINICION DE ENUMS PARA LOS ESTADOS DE CLASIFICACIÓN Y GUARDADO,
 //PERMITE A LA UI SABER CUANDO MOSTRAR CARGANDO, RESULTADOS, O MENSAJES DE ERROR.
 enum ClassificationState { idle, loading, success, error }
@@ -27,6 +35,7 @@ class ClassificationController extends ChangeNotifier {
     this._localStoragePort,
   ) {
     updatePendingCount();
+    _startLocationMonitoring(); // Initialize continuous location monitoring for alerts
   }
 
   ClassificationState _state = ClassificationState.idle;
@@ -39,9 +48,17 @@ class ClassificationController extends ChangeNotifier {
   String? _selectedImagePath;
   String? _savedDocumentId;
   String _observations = ''; // HU-07
+  String? _userAddress; // [HU-20/21/22]: User's current address for map and alerts
+  ({double latitude, double longitude, String? address})? _userLocation; // Cache de ubicación del usuario
   int _pendingCount = 0;
   List<Map<String, dynamic>> _pendingReportsList = []; // [NUEVO]: Lista para gestión
   final Set<String> _selectedIds = {}; // [NUEVO]: IDs seleccionados para gestión
+
+  // [HU-21]: Estado de los filtros
+  Set<DamageLevel> _filterLevels = {};
+  DateTimeRange? _filterDateRange;
+  double _maxDistanceKm = 10.0; // Radio por defecto para HU-20
+  StreamSubscription<Position>? _positionSubscription; // For HU-22 continuous monitoring
 
   ClassificationState get state => _state;
   SaveState get saveState => _saveState;
@@ -53,10 +70,54 @@ class ClassificationController extends ChangeNotifier {
   String? get selectedImagePath => _selectedImagePath;
   String? get savedDocumentId => _savedDocumentId;
   String get observations => _observations; // HU-07
+  ({double latitude, double longitude, String? address})? get userLocation => _userLocation;
+  String? get userAddress => _userAddress;
   int get pendingCount => _pendingCount;
   List<Map<String, dynamic>> get pendingReportsList => _pendingReportsList;
   Set<String> get selectedIds => _selectedIds;
   int get selectedCount => _selectedIds.length;
+  
+  // Getters para filtros
+  Set<DamageLevel> get filterLevels => _filterLevels;
+  DateTimeRange? get filterDateRange => _filterDateRange;
+  double get maxDistanceKm => _maxDistanceKm;
+
+  // [HU-21]: Métodos para actualizar filtros
+  void toggleFilterLevel(DamageLevel level) {
+    if (_filterLevels.contains(level)) {
+      _filterLevels.remove(level);
+    } else {
+      _filterLevels.add(level);
+    }
+    notifyListeners();
+  }
+
+  void setDateRange(DateTimeRange? range) {
+    _filterDateRange = range;
+    notifyListeners();
+  }
+
+  void setMaxDistance(double distance) {
+    _maxDistanceKm = distance;
+    notifyListeners();
+  }
+
+  void resetFilters() {
+    _filterLevels.clear();
+    _filterDateRange = null;
+    _maxDistanceKm = 10.0;
+    notifyListeners();
+  }
+
+  // [HU-20]: Cálculo de distancia (Haversine formula)
+  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    var p = 0.017453292519943295;
+    var c = cos;
+    var a = 0.5 - c((lat2 - lat1) * p) / 2 + 
+          c(lat1 * p) * c(lat2 * p) * 
+          (1 - c((lon2 - lon1) * p)) / 2;
+    return 12742 * asin(sqrt(a));
+  }
 
   Future<void> updatePendingCount() async {
     _pendingReportsList = await _localStoragePort.getAllPendingReports();
@@ -172,6 +233,105 @@ class ClassificationController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // [HU-20]: Fetch and set current user location
+  Future<void> fetchAndSetCurrentLocation() async {
+    _warningMessage = null; // Clear previous warnings
+    try {
+      final coords = await _locationPort.getCurrentLocation();
+      _userLocation = coords;
+      _userAddress = coords.address;
+      notifyListeners();
+    } catch (e) {
+      _userLocation = null;
+      _userAddress = null;
+      _warningMessage = 'No se pudo obtener la ubicación actual. Verifique el GPS y los permisos.';
+      notifyListeners();
+      debugPrint('Error fetching user location: $e');
+    }
+  }
+
+  // [HU-21]: Stream de inspecciones filtradas para el mapa
+  Stream<List<RoadIncidence>> getFilteredInspectionsStream() {
+    return FirebaseFirestore.instance.collection('inspecciones').snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Convert Firestore data to RoadIncidence
+        return RoadIncidence(
+          id: doc.id,
+          imagePath: data['imagePath'] ?? '',
+          damageLevel: DamageLevel.values.firstWhere(
+            (e) => e.name.toLowerCase() == data['clase'].toString().toLowerCase(),
+            orElse: () => DamageLevel.normal,
+          ),
+          confidence: (data['confianza'] as num?)?.toDouble() ?? 0.0,
+          probabilities: {}, // Not directly stored in Firestore for now, or needs mapping
+          detectedAt: (data['fechaHora'] as Timestamp).toDate(),
+          latitude: (data['latitud'] as num?)?.toDouble(),
+          longitude: (data['longitud'] as num?)?.toDouble(),
+          address: data['direccion'],
+          observations: data['observaciones'],
+        );
+      }).where((incidence) {
+        // Apply filters
+        bool matches = true;
+
+        // Filter by DamageLevel (HU-21)
+        if (_filterLevels.isNotEmpty && !(_filterLevels.contains(incidence.damageLevel))) {
+          matches = false;
+        }
+
+        // Filter by DateRange (HU-21)
+        if (_filterDateRange != null) {
+          final incidenceDate = incidence.detectedAt;
+          if (incidenceDate.isBefore(_filterDateRange!.start) || incidenceDate.isAfter(_filterDateRange!.end.add(const Duration(days: 1)))) {
+            matches = false;
+          }
+        }
+
+        // Filter by Proximity (HU-20)
+        if (_userLocation != null && _maxDistanceKm > 0 && incidence.latitude != null && incidence.longitude != null) {
+          final distance = calculateDistance(
+            _userLocation!.latitude,
+            _userLocation!.longitude,
+            incidence.latitude!,
+            incidence.longitude!,
+          );
+          if (distance > _maxDistanceKm) {
+            matches = false;
+          }
+        }
+
+        return matches;
+      }).toList();
+    });
+  }
+
+  // [HU-22]: Continuous location monitoring for alerts
+  void _startLocationMonitoring() {
+    // Check for permissions and service status first
+    _locationPort.getCurrentLocation().then((_) {
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10, // Update every 10 meters
+        ),
+      ).listen((Position position) {
+        _userLocation = (latitude: position.latitude, longitude: position.longitude, address: null); // Address can be reverse geocoded if needed
+        _userAddress = null; // Clear address, will be updated on demand or from full fetch
+        _checkForCriticalIncidents(); // New method for alert logic
+        notifyListeners();
+      }, onError: (e) {
+        debugPrint('Error in position stream: $e');
+        _warningMessage = 'No se pudo mantener la ubicación en tiempo real para alertas.';
+        notifyListeners();
+      });
+    }).catchError((e) {
+      debugPrint('Initial location check failed for monitoring: $e');
+      _warningMessage = 'No se pudo iniciar el monitoreo de ubicación para alertas.';
+      notifyListeners();
+    });
+  }
+
   void setImagePath(String path) {
     _selectedImagePath = path;
     _state = ClassificationState.idle;
@@ -228,6 +388,9 @@ class ClassificationController extends ChangeNotifier {
       // Asociamos los datos de ubicación a la entidad resultante
       _result = _applyLocation(aiResult, lat, lng, address);
       _state = ClassificationState.success;
+    } on AiClassificationException catch (e) {
+      _errorMessage = e.userMessage;
+      _state = ClassificationState.error;
     } catch (e) {
       // [PMV1 - HU-08 - Escenario 2]: La imagen no puede ser interpretada o procesada.
       _errorMessage = 'Error al clasificar: $e';
@@ -386,6 +549,63 @@ class ClassificationController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // [HU-22]: Check for critical incidents nearby
+  Future<void> _checkForCriticalIncidents() async {
+    // Evitar consultas si no hay ubicación o si el usuario aún no se ha autenticado
+    if (_userLocation == null || FirebaseAuth.instance.currentUser == null) return;
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('inspecciones')
+        .where('uid', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+        .get();
+    final incidents = snapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return RoadIncidence(
+        id: doc.id,
+        imagePath: data['imagePath'] ?? '',
+        damageLevel: DamageLevel.values.firstWhere(
+          (e) => e.name.toLowerCase() == data['clase'].toString().toLowerCase(),
+          orElse: () => DamageLevel.normal,
+        ),
+        confidence: (data['confianza'] as num?)?.toDouble() ?? 0.0,
+        probabilities: {},
+        detectedAt: (data['fechaHora'] as Timestamp).toDate(),
+        latitude: (data['latitud'] as num?)?.toDouble(),
+        longitude: (data['longitud'] as num?)?.toDouble(),
+        address: data['direccion'],
+        observations: data['observaciones'],
+      );
+    }).toList();
+
+    final roadSafetyService = RoadSafetyService(); // Assuming this can be instantiated or injected
+
+    for (var incidence in incidents) {
+      if (incidence.latitude != null && incidence.longitude != null) {
+        final distance = calculateDistance(
+          _userLocation!.latitude,
+          _userLocation!.longitude,
+          incidence.latitude!,
+          incidence.longitude!,
+        );
+
+        // Define a threshold for "aproximarse a zonas" (e.g., 500 meters)
+        if (distance < GeoThresholds.proximityAlertRadiusKm) { // 0.5 km = 500 meters
+          if (roadSafetyService.shouldTriggerEmergencyAlert(incidence.damageLevel, incidence.confidence)) {
+            // [HU-22 - Escenario 1]: Trigger local notification
+            // Placeholder for notification logic
+            debugPrint('ALERTA: Incidencia crítica cercana detectada: ${incidence.id} a ${distance.toStringAsFixed(2)} km');
+            // TODO: Implement actual local notification using flutter_local_notifications
+            // Example: _notificationService.showNotification(
+            //   id: incidence.id.hashCode,
+            //   title: '¡Alerta Vial Crítica!',
+            //   body: 'Te aproximas a una zona con daño ${incidence.damageLevel.label} (${incidence.address ?? 'ubicación desconocida'}).',
+            // );
+          }
+        }
+      }
+    }
+  }
+
   void reset() {
     _state = ClassificationState.idle;
     _saveState = SaveState.idle;
@@ -397,5 +617,11 @@ class ClassificationController extends ChangeNotifier {
     _georefLatencyMs = null;
     _savedDocumentId = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    super.dispose();
   }
 }

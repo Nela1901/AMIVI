@@ -24,6 +24,10 @@ dependencies:
   geolocator: ^13.0.0
   geocoding: ^2.2.1
   http: ^1.2.1
+  google_maps_flutter: ^2.6.0
+  google_maps_cluster_manager: ^3.0.0
+  flutter_local_notifications: ^17.2.2
+  flutter_dotenv: ^5.1.0
 
 
 dev_dependencies:
@@ -37,3 +41,4 @@ flutter:
   assets:
     - lib/src/adapters/out/ai/models/modelo_vial_correcto.tflite
     - lib/src/adapters/out/ai/models/modelo_vial_gradcam.tflite
+    - .env

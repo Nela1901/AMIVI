@@ -1,15 +1,18 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter/foundation.dart'; // Requerido para debugPrint
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../../domain/entities/road_incidence.dart';
 import '../../../application/ports/output/save_inspection_port.dart';
 
 class FirestoreAdapter implements SaveInspectionPort {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  static const String _cloudName = 'djeruiyop';
-  static const String _uploadPreset = 'amivi_preset';
+  static String get _cloudName => dotenv.env['CLOUDINARY_CLOUD_NAME'] ?? '';
+  static String get _uploadPreset => dotenv.env['CLOUDINARY_UPLOAD_PRESET'] ?? '';
 
   Future<String> _uploadToCloudinary(String imagePath) async {
     final url = Uri.parse(
@@ -40,14 +43,17 @@ class FirestoreAdapter implements SaveInspectionPort {
     String? direccion,
     String? observaciones,
   }) async {
+    // [HU-18]: Verificamos si el archivo de imagen aún existe en el dispositivo
+    if (!await File(imagePath).exists()) {
+      throw Exception('El archivo de imagen original ya no existe. El reporte está huérfano.');
+    }
+
     // Subir imagen a Cloudinary
     final imageUrl = await _uploadToCloudinary(imagePath);
 
-    // Borrar copia temporal después de subir
-    try { await File(imagePath).delete(); } catch (_) {}
-
     // Guardar en Firestore
     final docRef = await _firestore.collection('inspecciones').add({
+      'uid': FirebaseAuth.instance.currentUser?.uid, // Vinculación obligatoria para las reglas
       'imagenUrl': imageUrl,
       'clase': incidence.damageLevel.name,
       'confianza': incidence.confidence,
@@ -59,6 +65,14 @@ class FirestoreAdapter implements SaveInspectionPort {
       'requiereIntervencion': incidence.requiresIntervention,
       'requiereMonitoreo': incidence.requiresMonitoring,
     });
+
+    // [HU-18]: Borrar el archivo local SOLO cuando el guardado en Firestore fue exitoso.
+    // Si Firestore falla, el archivo debe permanecer para reintentar la subida después.
+    try {
+      await File(imagePath).delete();
+    } catch (e) {
+      debugPrint('Error al limpiar archivo temporal: $e');
+    }
 
     return docRef.id;
   }
